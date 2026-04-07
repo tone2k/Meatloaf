@@ -1,8 +1,13 @@
+pub mod models;
+
 use std::path::Path;
+use std::str::FromStr;
 use std::sync::Mutex;
 
 use anyhow::{Context, Result};
-use rusqlite::Connection;
+use rusqlite::{Connection, params};
+
+use crate::storage::models::{FileEvent, FileEventType};
 
 /// SQLite-backed event store.
 ///
@@ -37,6 +42,68 @@ impl Storage {
         conn.execute_batch(SCHEMA_SQL)
             .context("running schema migrations")?;
         Ok(())
+    }
+
+    /// Persist a single file event.
+    #[allow(dead_code)] // wired into capture::fs in Slice 6
+    pub fn insert_file_event(&self, event: &FileEvent) -> Result<()> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        conn.execute(
+            "INSERT INTO file_events
+                (timestamp, file_path, event_type, content_hash, content, session_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                event.timestamp,
+                event.file_path,
+                event.event_type.to_string(),
+                event.content_hash,
+                event.content,
+                event.session_id,
+            ],
+        )
+        .context("inserting file_event")?;
+        Ok(())
+    }
+
+    /// Return every file event in the database, oldest first.
+    #[allow(dead_code)] // exposed for tests + future query subcommands
+    pub fn list_file_events(&self) -> Result<Vec<FileEvent>> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        let mut stmt = conn.prepare(
+            "SELECT timestamp, file_path, event_type, content_hash, content, session_id
+             FROM file_events
+             ORDER BY id ASC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            let event_type_str: String = row.get(2)?;
+            let content_hash: Option<String> = row.get(3)?;
+            let content: Option<Vec<u8>> = row.get(4)?;
+            let session_id: Option<String> = row.get(5)?;
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                event_type_str,
+                content_hash,
+                content,
+                session_id,
+            ))
+        })?;
+
+        let mut out = Vec::new();
+        for row in rows {
+            let (timestamp, file_path, event_type_str, content_hash, content, session_id) = row?;
+            let event_type = FileEventType::from_str(&event_type_str)
+                .with_context(|| format!("decoding file_event {file_path}"))?;
+            out.push(FileEvent {
+                timestamp,
+                file_path,
+                event_type,
+                content_hash,
+                content,
+                session_id,
+            });
+        }
+        Ok(out)
     }
 
     /// Returns the names of every user table in the database. Used in tests.
@@ -104,14 +171,19 @@ CREATE TABLE IF NOT EXISTS sessions (
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::models::{FileEvent, FileEventType};
     use tempfile::tempdir;
+
+    fn fresh_storage() -> (tempfile::TempDir, Storage) {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("watcher.db");
+        let storage = Storage::open(&db_path).expect("open storage");
+        (dir, storage)
+    }
 
     #[test]
     fn open_creates_schema_and_enables_wal() {
-        let dir = tempdir().unwrap();
-        let db_path = dir.path().join("watcher.db");
-
-        let storage = Storage::open(&db_path).expect("open storage");
+        let (_dir, storage) = fresh_storage();
 
         let tables = storage.table_names().expect("list tables");
         for expected in ["file_events", "git_events", "terminal_events", "sessions"] {
@@ -122,5 +194,25 @@ mod tests {
         }
 
         assert_eq!(storage.journal_mode().unwrap().to_lowercase(), "wal");
+    }
+
+    #[test]
+    fn file_event_round_trip() {
+        let (_dir, storage) = fresh_storage();
+
+        let event = FileEvent {
+            timestamp: "2026-04-07T10:11:12Z".to_string(),
+            file_path: "src/main.rs".to_string(),
+            event_type: FileEventType::Modify,
+            content_hash: Some("abc123".to_string()),
+            content: Some(b"hello world".to_vec()),
+            session_id: Some("session-1".to_string()),
+        };
+
+        storage.insert_file_event(&event).expect("insert");
+
+        let stored = storage.list_file_events().expect("list");
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0], event);
     }
 }
