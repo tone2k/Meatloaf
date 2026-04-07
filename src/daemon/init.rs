@@ -111,9 +111,17 @@ fn install_hook_file(hook_path: &Path, hook_name: &str) -> Result<()> {
 
 /// Generate the watcher-managed block for a given hook. The trailing
 /// `|| true` ensures a recording failure never breaks the user's commit.
+///
+/// The block invokes the absolute path to the `watcher` binary that ran
+/// `init` so the hook keeps working even when `watcher` is not on `PATH`
+/// inside whatever shell git happens to invoke the hook from.
 fn build_hook_block(hook_name: &str) -> String {
+    let exe = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.to_str().map(str::to_string))
+        .unwrap_or_else(|| "watcher".to_string());
     format!(
-        "{begin}\nwatcher record-git {hook_name} || true\n{end}",
+        "{begin}\n{exe:?} record-git {hook_name} || true\n{end}",
         begin = HOOK_BLOCK_BEGIN,
         end = HOOK_BLOCK_END,
     )

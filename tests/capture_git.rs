@@ -113,8 +113,10 @@ fn init_installs_hooks_idempotently_and_preserves_existing() {
         after.contains("# >>> watcher >>>") && after.contains("# <<< watcher <<<"),
         "watcher block markers must be present:\n{after}"
     );
+    // The block embeds the absolute path of the watcher binary that ran
+    // init, so we only check for the trailing record-git invocation here.
     assert!(
-        after.contains("watcher record-git post-commit"),
+        after.contains("record-git post-commit"),
         "watcher block must invoke record-git post-commit:\n{after}"
     );
 
@@ -137,9 +139,9 @@ fn init_installs_hooks_idempotently_and_preserves_existing() {
 
     // post-checkout and post-merge should also be installed.
     let post_checkout = std::fs::read_to_string(hooks_dir.join("post-checkout")).unwrap();
-    assert!(post_checkout.contains("watcher record-git post-checkout"));
+    assert!(post_checkout.contains("record-git post-checkout"));
     let post_merge = std::fs::read_to_string(hooks_dir.join("post-merge")).unwrap();
-    assert!(post_merge.contains("watcher record-git post-merge"));
+    assert!(post_merge.contains("record-git post-merge"));
 }
 
 #[test]
