@@ -7,7 +7,9 @@ use std::sync::Mutex;
 use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 
-use crate::storage::models::{FileEvent, FileEventType};
+use crate::storage::models::{
+    FileEvent, FileEventType, GitEvent, GitEventType, TerminalEvent,
+};
 
 /// SQLite-backed event store.
 ///
@@ -106,6 +108,114 @@ impl Storage {
         Ok(out)
     }
 
+    /// Persist a single git event.
+    #[allow(dead_code)] // wired into capture::git in Slice 9
+    pub fn insert_git_event(&self, event: &GitEvent) -> Result<()> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        let files_changed_json = serde_json::to_string(&event.files_changed)
+            .context("serializing files_changed")?;
+        conn.execute(
+            "INSERT INTO git_events
+                (timestamp, event_type, commit_hash, message, files_changed, diff_stat)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                event.timestamp,
+                event.event_type.to_string(),
+                event.commit_hash,
+                event.message,
+                files_changed_json,
+                event.diff_stat,
+            ],
+        )
+        .context("inserting git_event")?;
+        Ok(())
+    }
+
+    /// Return every git event in the database, oldest first.
+    #[allow(dead_code)] // exposed for tests + future query subcommands
+    pub fn list_git_events(&self) -> Result<Vec<GitEvent>> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        let mut stmt = conn.prepare(
+            "SELECT timestamp, event_type, commit_hash, message, files_changed, diff_stat
+             FROM git_events
+             ORDER BY id ASC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, Option<String>>(5)?,
+            ))
+        })?;
+
+        let mut out = Vec::new();
+        for row in rows {
+            let (timestamp, event_type_str, commit_hash, message, files_json, diff_stat) = row?;
+            let event_type = GitEventType::from_str(&event_type_str)
+                .with_context(|| format!("decoding git_event {event_type_str}"))?;
+            let files_changed: Vec<String> = serde_json::from_str(&files_json)
+                .context("decoding files_changed json")?;
+            out.push(GitEvent {
+                timestamp,
+                event_type,
+                commit_hash,
+                message,
+                files_changed,
+                diff_stat,
+            });
+        }
+        Ok(out)
+    }
+
+    /// Persist a single terminal event.
+    #[allow(dead_code)] // wired into capture::terminal in Slice 10
+    pub fn insert_terminal_event(&self, event: &TerminalEvent) -> Result<()> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        conn.execute(
+            "INSERT INTO terminal_events
+                (timestamp, command, exit_code, cwd, session_id)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                event.timestamp,
+                event.command,
+                event.exit_code,
+                event.cwd,
+                event.session_id,
+            ],
+        )
+        .context("inserting terminal_event")?;
+        Ok(())
+    }
+
+    /// Return every terminal event in the database, oldest first.
+    #[allow(dead_code)] // exposed for tests + future query subcommands
+    pub fn list_terminal_events(&self) -> Result<Vec<TerminalEvent>> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        let mut stmt = conn.prepare(
+            "SELECT timestamp, command, exit_code, cwd, session_id
+             FROM terminal_events
+             ORDER BY id ASC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(TerminalEvent {
+                timestamp: row.get(0)?,
+                command: row.get(1)?,
+                exit_code: row.get(2)?,
+                cwd: row.get(3)?,
+                session_id: row.get(4)?,
+            })
+        })?;
+
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
     /// Returns the names of every user table in the database. Used in tests.
     #[cfg(test)]
     pub fn table_names(&self) -> Result<Vec<String>> {
@@ -171,7 +281,9 @@ CREATE TABLE IF NOT EXISTS sessions (
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::models::{FileEvent, FileEventType};
+    use crate::storage::models::{
+        FileEvent, FileEventType, GitEvent, GitEventType, TerminalEvent,
+    };
     use tempfile::tempdir;
 
     fn fresh_storage() -> (tempfile::TempDir, Storage) {
@@ -212,6 +324,45 @@ mod tests {
         storage.insert_file_event(&event).expect("insert");
 
         let stored = storage.list_file_events().expect("list");
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0], event);
+    }
+
+    #[test]
+    fn git_event_round_trip() {
+        let (_dir, storage) = fresh_storage();
+
+        let event = GitEvent {
+            timestamp: "2026-04-07T10:12:00Z".to_string(),
+            event_type: GitEventType::PostCommit,
+            commit_hash: Some("deadbeef".to_string()),
+            message: Some("first commit".to_string()),
+            files_changed: vec!["src/main.rs".to_string(), "Cargo.toml".to_string()],
+            diff_stat: Some("2 files changed".to_string()),
+        };
+
+        storage.insert_git_event(&event).expect("insert");
+
+        let stored = storage.list_git_events().expect("list");
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0], event);
+    }
+
+    #[test]
+    fn terminal_event_round_trip() {
+        let (_dir, storage) = fresh_storage();
+
+        let event = TerminalEvent {
+            timestamp: "2026-04-07T10:13:00Z".to_string(),
+            command: "cargo test".to_string(),
+            exit_code: Some(0),
+            cwd: Some("/home/user/Meatloaf".to_string()),
+            session_id: Some("session-1".to_string()),
+        };
+
+        storage.insert_terminal_event(&event).expect("insert");
+
+        let stored = storage.list_terminal_events().expect("list");
         assert_eq!(stored.len(), 1);
         assert_eq!(stored[0], event);
     }

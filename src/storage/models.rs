@@ -54,3 +54,57 @@ impl FromStr for FileEventType {
         })
     }
 }
+
+/// A captured git event, sourced from a hook.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitEvent {
+    pub timestamp: String,
+    pub event_type: GitEventType,
+    pub commit_hash: Option<String>,
+    pub message: Option<String>,
+    pub files_changed: Vec<String>,
+    pub diff_stat: Option<String>,
+}
+
+// Variant names mirror the git hook names exactly so the round-trip
+// strings stay obvious to operators reading the database.
+#[allow(clippy::enum_variant_names)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GitEventType {
+    PostCommit,
+    PostCheckout,
+    PostMerge,
+}
+
+impl fmt::Display for GitEventType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::PostCommit => "post-commit",
+            Self::PostCheckout => "post-checkout",
+            Self::PostMerge => "post-merge",
+        })
+    }
+}
+
+impl FromStr for GitEventType {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        Ok(match s {
+            "post-commit" => Self::PostCommit,
+            "post-checkout" => Self::PostCheckout,
+            "post-merge" => Self::PostMerge,
+            other => bail!("unknown git event type: {other}"),
+        })
+    }
+}
+
+/// A captured terminal command invocation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TerminalEvent {
+    pub timestamp: String,
+    pub command: String,
+    pub exit_code: Option<i64>,
+    pub cwd: Option<String>,
+    pub session_id: Option<String>,
+}
