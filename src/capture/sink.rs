@@ -148,7 +148,12 @@ impl StorageSink {
             .with_context(|| format!("reading {}", absolute.display()))?;
         let hash = blake3::hash(&bytes).to_hex().to_string();
 
-        let compressed = if metadata.len() > self.max_snapshot_bytes {
+        // Binary detection: only sniff the first 8 KiB to keep this cheap.
+        let probe_len = bytes.len().min(8 * 1024);
+        let is_binary =
+            content_inspector::inspect(&bytes[..probe_len]).is_binary();
+
+        let compressed = if is_binary || metadata.len() > self.max_snapshot_bytes {
             None
         } else {
             Some(
@@ -171,6 +176,38 @@ mod tests {
     use super::*;
     use crate::storage::Storage;
     use tempfile::tempdir;
+
+    #[test]
+    fn storage_sink_skips_content_blob_for_binary_files() {
+        let project = tempdir().unwrap();
+        let project_root = project.path().to_path_buf();
+        let db_path = project_root.join("watcher.db");
+        let storage = Arc::new(Storage::open(&db_path).unwrap());
+        let session_id = storage.open_session().unwrap();
+
+        // NUL byte + non-text bytes in the first KiB makes content_inspector
+        // flag this as binary.
+        let body: Vec<u8> = (0..=255u8).collect();
+        std::fs::write(project_root.join("blob.bin"), &body).unwrap();
+
+        let sink = StorageSink::new(storage.clone(), session_id, project_root.clone());
+        sink.record(CapturedEvent::FileChanged {
+            path: PathBuf::from("blob.bin"),
+            kind: FileEventType::Modify,
+        });
+
+        let rows = storage.list_file_events().unwrap();
+        assert_eq!(rows.len(), 1);
+        let row = &rows[0];
+
+        // Hash is still recorded even for binary files (so we can dedupe later).
+        let expected_hash = blake3::hash(&body).to_hex().to_string();
+        assert_eq!(row.content_hash.as_deref(), Some(expected_hash.as_str()));
+        assert!(
+            row.content.is_none(),
+            "binary file content should not be persisted"
+        );
+    }
 
     #[test]
     fn storage_sink_records_blake3_hash_and_zstd_content() {
