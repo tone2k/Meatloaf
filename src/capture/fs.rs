@@ -122,7 +122,7 @@ pub fn spawn(
         .watch(&project_root, RecursiveMode::Recursive)
         .with_context(|| format!("watching {}", project_root.display()))?;
 
-    let sink = StorageSink::new(storage, session_id);
+    let sink = StorageSink::new(storage, session_id, project_root.clone());
     let writer_root = project_root.clone();
     let matcher = IgnoreMatcher::new(&project_root).context("loading ignore matcher")?;
 
