@@ -8,8 +8,11 @@ use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 
 use crate::storage::models::{
-    FileEvent, FileEventType, GitEvent, GitEventType, TerminalEvent,
+    FileEvent, FileEventType, GitEvent, GitEventType, SessionRow, TerminalEvent,
 };
+use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
+use uuid::Uuid;
 
 /// SQLite-backed event store.
 ///
@@ -44,6 +47,74 @@ impl Storage {
         conn.execute_batch(SCHEMA_SQL)
             .context("running schema migrations")?;
         Ok(())
+    }
+
+    /// Open a new session row and return its UUID. The caller stamps each
+    /// captured event with the returned id and calls [`Storage::close_session`]
+    /// when the daemon is shutting down.
+    #[allow(dead_code)] // wired into daemon::run in Slice 11a
+    pub fn open_session(&self) -> Result<String> {
+        let id = Uuid::new_v4().to_string();
+        let now = OffsetDateTime::now_utc()
+            .format(&Rfc3339)
+            .context("formatting session start_time")?;
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        conn.execute(
+            "INSERT INTO sessions (id, start_time, files_touched, git_commits)
+             VALUES (?1, ?2, '[]', '[]')",
+            params![id, now],
+        )
+        .context("inserting session row")?;
+        Ok(id)
+    }
+
+    /// Mark the session row's end_time. No-op if the id is unknown.
+    #[allow(dead_code)] // wired into daemon::run in Slice 11a
+    pub fn close_session(&self, id: &str) -> Result<()> {
+        let now = OffsetDateTime::now_utc()
+            .format(&Rfc3339)
+            .context("formatting session end_time")?;
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        conn.execute(
+            "UPDATE sessions SET end_time = ?1 WHERE id = ?2",
+            params![now, id],
+        )
+        .context("updating session end_time")?;
+        Ok(())
+    }
+
+    /// Fetch a single session row by id, primarily for tests and the future
+    /// `watcher episodes` subcommand.
+    #[allow(dead_code)] // exposed for tests today
+    pub fn session_row(&self, id: &str) -> Result<Option<SessionRow>> {
+        let conn = self.conn.lock().expect("storage mutex poisoned");
+        let mut stmt = conn.prepare(
+            "SELECT id, start_time, end_time, files_touched, git_commits, episode_summary
+             FROM sessions
+             WHERE id = ?1",
+        )?;
+        let mut rows = stmt.query(params![id])?;
+        let Some(row) = rows.next()? else {
+            return Ok(None);
+        };
+        let id: String = row.get(0)?;
+        let start_time: String = row.get(1)?;
+        let end_time: Option<String> = row.get(2)?;
+        let files_json: String = row.get(3)?;
+        let commits_json: String = row.get(4)?;
+        let episode_summary: Option<String> = row.get(5)?;
+        let files_touched: Vec<String> =
+            serde_json::from_str(&files_json).context("decoding files_touched json")?;
+        let git_commits: Vec<String> =
+            serde_json::from_str(&commits_json).context("decoding git_commits json")?;
+        Ok(Some(SessionRow {
+            id,
+            start_time,
+            end_time,
+            files_touched,
+            git_commits,
+            episode_summary,
+        }))
     }
 
     /// Persist a single file event.
@@ -346,6 +417,41 @@ mod tests {
         let stored = storage.list_git_events().expect("list");
         assert_eq!(stored.len(), 1);
         assert_eq!(stored[0], event);
+    }
+
+    #[test]
+    fn open_session_assigns_id_and_close_sets_end_time() {
+        let (_dir, storage) = fresh_storage();
+
+        let session_id = storage.open_session().expect("open_session");
+        assert!(!session_id.is_empty(), "session id must not be empty");
+
+        let row = storage
+            .session_row(&session_id)
+            .expect("session_row")
+            .expect("session row exists after open");
+        assert!(!row.start_time.is_empty(), "start_time should be set");
+        assert!(row.end_time.is_none(), "end_time should be None until close");
+
+        // A file event tagged with this session round-trips through list_*.
+        let event = FileEvent {
+            timestamp: "2026-04-07T10:11:12Z".to_string(),
+            file_path: "src/lib.rs".to_string(),
+            event_type: FileEventType::Create,
+            content_hash: None,
+            content: None,
+            session_id: Some(session_id.clone()),
+        };
+        storage.insert_file_event(&event).expect("insert");
+        let stored = storage.list_file_events().unwrap();
+        assert_eq!(stored[0].session_id.as_deref(), Some(session_id.as_str()));
+
+        storage.close_session(&session_id).expect("close_session");
+        let row = storage.session_row(&session_id).unwrap().unwrap();
+        assert!(
+            row.end_time.is_some(),
+            "end_time should be populated after close_session"
+        );
     }
 
     #[test]

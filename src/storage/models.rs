@@ -99,6 +99,17 @@ impl FromStr for GitEventType {
     }
 }
 
+/// A row in the `sessions` table representing a daemon run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionRow {
+    pub id: String,
+    pub start_time: String,
+    pub end_time: Option<String>,
+    pub files_touched: Vec<String>,
+    pub git_commits: Vec<String>,
+    pub episode_summary: Option<String>,
+}
+
 /// A captured terminal command invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalEvent {
