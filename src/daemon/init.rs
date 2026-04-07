@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 
+use crate::capture::terminal::{SHELL_HOOK_FILE, SHELL_HOOK_SNIPPET};
 use crate::daemon::config::Config;
 use crate::storage::Storage;
 
@@ -46,6 +47,7 @@ pub fn run(project_root: &Path, force: bool) -> Result<()> {
         .with_context(|| format!("creating {}", watcher_dir.display()))?;
 
     write_default_config(&watcher_dir)?;
+    write_shell_hook(&watcher_dir)?;
 
     // Touch the database so the schema is in place before the daemon starts.
     let db_path = watcher_dir.join(DB_FILE);
@@ -54,6 +56,13 @@ pub fn run(project_root: &Path, force: bool) -> Result<()> {
     // Best-effort: install git hooks when this is a git repo.
     install_git_hooks(project_root)?;
 
+    Ok(())
+}
+
+fn write_shell_hook(watcher_dir: &Path) -> Result<()> {
+    let path = watcher_dir.join(SHELL_HOOK_FILE);
+    fs::write(&path, SHELL_HOOK_SNIPPET)
+        .with_context(|| format!("writing {}", path.display()))?;
     Ok(())
 }
 
