@@ -12,6 +12,7 @@ use crossbeam_channel::{Receiver, Sender, bounded, select};
 use notify::{EventKind, RecursiveMode};
 use notify_debouncer_full::{DebounceEventResult, DebouncedEvent, new_debouncer};
 
+use crate::capture::ignore::IgnoreMatcher;
 use crate::capture::sink::{CapturedEvent, EventSink, StorageSink};
 use crate::storage::Storage;
 use crate::storage::models::FileEventType;
@@ -123,13 +124,15 @@ pub fn spawn(
 
     let sink = StorageSink::new(storage, session_id);
     let writer_root = project_root.clone();
+    let matcher = IgnoreMatcher::new(&project_root).context("loading ignore matcher")?;
 
     let handle = thread::Builder::new()
         .name("watcher-fs-writer".into())
         .spawn(move || {
             // The debouncer must outlive the writer thread; move it in.
             let _debouncer = debouncer;
-            writer_loop(&writer_root, &sink, rx, shutdown_rx);
+            let mut matcher = matcher;
+            writer_loop(&writer_root, &sink, &mut matcher, rx, shutdown_rx);
         })
         .context("spawning writer thread")?;
 
@@ -139,19 +142,20 @@ pub fn spawn(
 fn writer_loop(
     project_root: &Path,
     sink: &dyn EventSink,
+    matcher: &mut IgnoreMatcher,
     rx: Receiver<EventBatch>,
     shutdown_rx: Receiver<()>,
 ) {
     loop {
         select! {
             recv(rx) -> msg => match msg {
-                Ok(batch) => process_batch(sink, project_root, batch),
+                Ok(batch) => process_batch(sink, project_root, matcher, batch),
                 Err(_) => return,
             },
             recv(shutdown_rx) -> _ => {
                 // Drain anything still pending so we don't lose events at exit.
                 while let Ok(batch) = rx.try_recv() {
-                    process_batch(sink, project_root, batch);
+                    process_batch(sink, project_root, matcher, batch);
                 }
                 return;
             }
@@ -159,15 +163,41 @@ fn writer_loop(
     }
 }
 
-fn process_batch(sink: &dyn EventSink, project_root: &Path, batch: EventBatch) {
+fn process_batch(
+    sink: &dyn EventSink,
+    project_root: &Path,
+    matcher: &mut IgnoreMatcher,
+    batch: EventBatch,
+) {
     for debounced in batch.events {
         let raw_kind = raw_event_kind_from_notify(&debounced.event.kind);
-        // Only forward path-bearing events; the writer-side handle_event
-        // function does the rest of the translation.
         if debounced.event.paths.is_empty() {
             continue;
         }
-        handle_event(sink, project_root, raw_kind, &debounced.event.paths);
+
+        // If any path in this batch is one of the ignore source files, refresh
+        // the matcher before applying its rules.
+        if debounced
+            .event
+            .paths
+            .iter()
+            .any(|p| matcher.is_source_file(p))
+            && let Err(err) = matcher.reload()
+        {
+            tracing::warn!(error = %err, "failed to reload ignore matcher");
+        }
+
+        let kept: Vec<PathBuf> = debounced
+            .event
+            .paths
+            .into_iter()
+            .filter(|p| !matcher.is_ignored(p))
+            .collect();
+        if kept.is_empty() {
+            continue;
+        }
+
+        handle_event(sink, project_root, raw_kind, &kept);
     }
 }
 
