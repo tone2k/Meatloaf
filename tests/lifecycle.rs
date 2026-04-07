@@ -1,8 +1,10 @@
 //! Tests for the daemon::run lifecycle: file capture round-trip + clean
-//! shutdown drain + pid file management.
+//! shutdown drain + pid file management. Also covers `watcher start` /
+//! `watcher stop` end-to-end via the real binary.
 
 use std::time::{Duration, Instant};
 
+use assert_cmd::Command;
 use crossbeam_channel::unbounded;
 use tempfile::tempdir;
 
@@ -93,5 +95,67 @@ fn run_captures_files_and_drains_pending_events_on_shutdown() {
     assert!(
         row.end_time.is_some(),
         "session end_time should be set after shutdown"
+    );
+}
+
+#[test]
+fn watcher_start_writes_live_pid_then_stop_removes_it() {
+    let project = tempdir().expect("tempdir");
+    let project_root = project.path();
+    let pid_path = project_root.join(".watcher").join("watcher.pid");
+
+    Command::cargo_bin("watcher")
+        .unwrap()
+        .arg("init")
+        .current_dir(project_root)
+        .assert()
+        .success();
+
+    // start should fork the daemon child and return immediately.
+    let start_at = Instant::now();
+    Command::cargo_bin("watcher")
+        .unwrap()
+        .arg("start")
+        .current_dir(project_root)
+        .assert()
+        .success();
+    assert!(
+        start_at.elapsed() < Duration::from_secs(2),
+        "watcher start must return promptly, took {:?}",
+        start_at.elapsed()
+    );
+
+    // Wait for the child to write its pid.
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline && !pid_path.exists() {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(pid_path.exists(), "pid file should appear after start");
+
+    let pid_str = std::fs::read_to_string(&pid_path).unwrap();
+    let pid: i32 = pid_str.trim().parse().expect("pid is an integer");
+    // The child process should be alive (kill -0).
+    assert_eq!(
+        unsafe { libc::kill(pid, 0) },
+        0,
+        "pid {pid} should be alive"
+    );
+
+    // Now stop should send SIGTERM and clean up.
+    Command::cargo_bin("watcher")
+        .unwrap()
+        .arg("stop")
+        .current_dir(project_root)
+        .assert()
+        .success();
+
+    // Wait for the pid file to be removed.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline && pid_path.exists() {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(
+        !pid_path.exists(),
+        "pid file should be removed after stop"
     );
 }
