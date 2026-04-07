@@ -3,9 +3,25 @@
 #![allow(dead_code)]
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
-use crate::capture::sink::{CapturedEvent, EventSink};
+use anyhow::{Context, Result};
+use crossbeam_channel::{Receiver, Sender, bounded, select};
+use notify::{EventKind, RecursiveMode};
+use notify_debouncer_full::{DebounceEventResult, DebouncedEvent, new_debouncer};
+
+use crate::capture::sink::{CapturedEvent, EventSink, StorageSink};
+use crate::storage::Storage;
 use crate::storage::models::FileEventType;
+
+/// Capacity of the channel between the notify callback thread and our writer
+/// thread. Bounded so a slow writer back-pressures notify instead of growing
+/// without bound under bursts.
+const EVENT_CHANNEL_CAPACITY: usize = 1024;
+/// Debounce window forwarded to notify-debouncer-full.
+const DEBOUNCE_WINDOW: Duration = Duration::from_secs(1);
 
 /// Internal representation of a raw filesystem notification, decoupled from
 /// the `notify` crate so unit tests can drive [`handle_event`] without
@@ -51,6 +67,107 @@ fn translate_kind(kind: RawEventKind) -> Option<FileEventType> {
         RawEventKind::Modify => Some(FileEventType::Modify),
         RawEventKind::Remove => Some(FileEventType::Delete),
         RawEventKind::Other => None,
+    }
+}
+
+/// Map a notify [`EventKind`] into our internal [`RawEventKind`].
+fn raw_event_kind_from_notify(kind: &EventKind) -> RawEventKind {
+    match kind {
+        EventKind::Create(_) => RawEventKind::Create,
+        EventKind::Modify(_) => RawEventKind::Modify,
+        EventKind::Remove(_) => RawEventKind::Remove,
+        EventKind::Access(_) | EventKind::Any | EventKind::Other => RawEventKind::Other,
+    }
+}
+
+/// Single batch of debounced events handed off from the notify thread to the
+/// writer thread.
+struct EventBatch {
+    events: Vec<DebouncedEvent>,
+}
+
+/// Spin up the file watcher for `project_root`. Returns a JoinHandle for the
+/// writer thread; sending on `shutdown_rx` triggers a clean drain + exit.
+///
+/// The notify watcher itself runs on its own thread inside the debouncer; we
+/// spawn one additional writer thread that consumes batches from a bounded
+/// channel and forwards them through `handle_event` into a [`StorageSink`].
+pub fn spawn(
+    project_root: PathBuf,
+    storage: Arc<Storage>,
+    session_id: String,
+    shutdown_rx: Receiver<()>,
+) -> Result<JoinHandle<()>> {
+    let (tx, rx): (Sender<EventBatch>, Receiver<EventBatch>) = bounded(EVENT_CHANNEL_CAPACITY);
+
+    let mut debouncer =
+        new_debouncer(DEBOUNCE_WINDOW, None, move |result: DebounceEventResult| {
+            match result {
+                Ok(events) => {
+                    if let Err(err) = tx.send(EventBatch { events }) {
+                        tracing::warn!(error = %err, "writer channel closed; dropping batch");
+                    }
+                }
+                Err(errors) => {
+                    for err in errors {
+                        tracing::warn!(error = %err, "notify watcher error");
+                    }
+                }
+            }
+        })
+        .context("creating notify debouncer")?;
+
+    debouncer
+        .watch(&project_root, RecursiveMode::Recursive)
+        .with_context(|| format!("watching {}", project_root.display()))?;
+
+    let sink = StorageSink::new(storage, session_id);
+    let writer_root = project_root.clone();
+
+    let handle = thread::Builder::new()
+        .name("watcher-fs-writer".into())
+        .spawn(move || {
+            // The debouncer must outlive the writer thread; move it in.
+            let _debouncer = debouncer;
+            writer_loop(&writer_root, &sink, rx, shutdown_rx);
+        })
+        .context("spawning writer thread")?;
+
+    Ok(handle)
+}
+
+fn writer_loop(
+    project_root: &Path,
+    sink: &dyn EventSink,
+    rx: Receiver<EventBatch>,
+    shutdown_rx: Receiver<()>,
+) {
+    loop {
+        select! {
+            recv(rx) -> msg => match msg {
+                Ok(batch) => process_batch(sink, project_root, batch),
+                Err(_) => return,
+            },
+            recv(shutdown_rx) -> _ => {
+                // Drain anything still pending so we don't lose events at exit.
+                while let Ok(batch) = rx.try_recv() {
+                    process_batch(sink, project_root, batch);
+                }
+                return;
+            }
+        }
+    }
+}
+
+fn process_batch(sink: &dyn EventSink, project_root: &Path, batch: EventBatch) {
+    for debounced in batch.events {
+        let raw_kind = raw_event_kind_from_notify(&debounced.event.kind);
+        // Only forward path-bearing events; the writer-side handle_event
+        // function does the rest of the translation.
+        if debounced.event.paths.is_empty() {
+            continue;
+        }
+        handle_event(sink, project_root, raw_kind, &debounced.event.paths);
     }
 }
 

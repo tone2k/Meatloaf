@@ -3,10 +3,15 @@
 #![allow(dead_code)]
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
+use anyhow::Context;
 use crossbeam_channel::{Receiver, Sender, unbounded};
+use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 
-use crate::storage::models::FileEventType;
+use crate::storage::Storage;
+use crate::storage::models::{FileEvent, FileEventType};
 
 /// Translated, sink-ready capture event.
 ///
@@ -44,5 +49,53 @@ impl EventSink for TestSink {
         // Tests own the receiver; a SendError here would mean the test
         // dropped the channel early, which is fine to swallow.
         let _ = self.tx.send(event);
+    }
+}
+
+/// Sink that persists every captured event into [`Storage`].
+///
+/// Each event gets the current UTC timestamp and is stamped with the
+/// session id minted by `daemon::run()`.
+pub struct StorageSink {
+    storage: Arc<Storage>,
+    session_id: String,
+}
+
+impl StorageSink {
+    pub fn new(storage: Arc<Storage>, session_id: String) -> Self {
+        Self {
+            storage,
+            session_id,
+        }
+    }
+}
+
+impl EventSink for StorageSink {
+    fn record(&self, event: CapturedEvent) {
+        if let Err(err) = self.try_record(event) {
+            tracing::warn!(error = %err, "failed to persist captured event");
+        }
+    }
+}
+
+impl StorageSink {
+    fn try_record(&self, event: CapturedEvent) -> anyhow::Result<()> {
+        match event {
+            CapturedEvent::FileChanged { path, kind } => {
+                let timestamp = OffsetDateTime::now_utc()
+                    .format(&Rfc3339)
+                    .context("formatting file_event timestamp")?;
+                let file_path = path.to_string_lossy().into_owned();
+                let event = FileEvent {
+                    timestamp,
+                    file_path,
+                    event_type: kind,
+                    content_hash: None,
+                    content: None,
+                    session_id: Some(self.session_id.clone()),
+                };
+                self.storage.insert_file_event(&event)
+            }
+        }
     }
 }
