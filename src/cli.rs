@@ -1,4 +1,8 @@
+use std::env;
+
 use clap::{Parser, Subcommand};
+
+use crate::daemon;
 
 #[derive(Debug, Parser)]
 #[command(name = "watcher", version, about = "Local-first project memory daemon")]
@@ -19,7 +23,10 @@ pub enum Commands {
 
 pub fn run(cli: Cli) -> anyhow::Result<()> {
     match cli.command {
-        Commands::Init => Ok(()),
+        Commands::Init => {
+            let cwd = env::current_dir()?;
+            daemon::init::run(&cwd)
+        }
         Commands::Start => Ok(()),
         Commands::Stop => Ok(()),
     }
