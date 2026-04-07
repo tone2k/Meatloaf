@@ -1,8 +1,11 @@
 use std::env;
+use std::str::FromStr;
 
 use clap::{Args, Parser, Subcommand};
 
+use crate::capture::git;
 use crate::daemon;
+use crate::storage::models::GitEventType;
 
 #[derive(Debug, Parser)]
 #[command(name = "watcher", version, about = "Local-first project memory daemon")]
@@ -19,6 +22,9 @@ pub enum Commands {
     Start,
     /// Stop the running capture daemon
     Stop,
+    /// Record a git hook event (invoked by the installed hooks).
+    #[command(hide = true)]
+    RecordGit(RecordGitArgs),
 }
 
 #[derive(Debug, Args)]
@@ -26,6 +32,12 @@ pub struct InitArgs {
     /// Re-write `.watcher/config.toml` even if `.watcher/` already exists.
     #[arg(long)]
     pub force: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct RecordGitArgs {
+    /// Which git hook is calling us (post-commit / post-checkout / post-merge).
+    pub hook: String,
 }
 
 pub fn run(cli: Cli) -> anyhow::Result<()> {
@@ -36,5 +48,10 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
         }
         Commands::Start => Ok(()),
         Commands::Stop => Ok(()),
+        Commands::RecordGit(args) => {
+            let cwd = env::current_dir()?;
+            let hook = GitEventType::from_str(&args.hook)?;
+            git::record(&cwd, hook)
+        }
     }
 }
