@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 
 use crate::daemon::config::Config;
 
@@ -12,10 +12,20 @@ pub const CONFIG_FILE: &str = "config.toml";
 
 /// Scaffold a fresh `.watcher/` directory inside `project_root`.
 ///
-/// Currently writes the default config; later slices add the SQLite database
-/// and git hook installation.
-pub fn run(project_root: &Path) -> Result<()> {
+/// If `force` is false and the directory already exists, returns an error
+/// without touching any existing files. With `force = true` the config is
+/// rewritten back to defaults; the database (added in a later slice) is
+/// never clobbered.
+pub fn run(project_root: &Path, force: bool) -> Result<()> {
     let watcher_dir = project_root.join(WATCHER_DIR);
+
+    if watcher_dir.exists() && !force {
+        return Err(anyhow!(
+            "{} already initialized; pass --force to overwrite the config",
+            watcher_dir.display()
+        ));
+    }
+
     fs::create_dir_all(&watcher_dir)
         .with_context(|| format!("creating {}", watcher_dir.display()))?;
 
