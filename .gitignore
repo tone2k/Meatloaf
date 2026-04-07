@@ -1,0 +1,10 @@
+/target
+**/*.rs.bk
+Cargo.lock.bak
+
+# Test fixtures may write .watcher/ scaffolds; never commit those.
+**/.watcher/watcher.db
+**/.watcher/watcher.db-wal
+**/.watcher/watcher.db-shm
+**/.watcher/watcher.pid
+**/.watcher/watcher.log
