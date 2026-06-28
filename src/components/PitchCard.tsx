@@ -12,6 +12,7 @@ export interface PitchCardData {
   authorHandle: string;
   hasVoted: boolean;
   posterSvg?: string | null;
+  criticScore?: number | null;
 }
 
 export function PitchCard({
@@ -29,7 +30,15 @@ export function PitchCard({
   return (
     <div className="card">
       {released && pitch.posterSvg && (
-        <Link href={href} className="poster-wrap" dangerouslySetInnerHTML={{ __html: pitch.posterSvg }} />
+        <Link href={href} className="poster-link">
+          <span className="poster-wrap" dangerouslySetInnerHTML={{ __html: pitch.posterSvg }} />
+          {typeof pitch.criticScore === "number" && (
+            <span className="score-chip" title="Critic score">
+              {pitch.criticScore}
+            </span>
+          )}
+          <span className="poster-play">▶</span>
+        </Link>
       )}
       <div className="card-body">
         <div className="card-foot" style={{ marginBottom: 2 }}>
@@ -64,6 +73,7 @@ export function PitchCard({
           </span>
           <VoteButton
             pitchId={pitch.id}
+            title={pitch.title}
             voteCount={pitch.voteCount}
             hasVoted={pitch.hasVoted}
             signedIn={signedIn}

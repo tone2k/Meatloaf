@@ -2,31 +2,35 @@
 
 import { useTransition, useState } from "react";
 import { generateMovieAction } from "@/app/actions";
+import { useToast } from "./Toast";
 
 const PHASES = [
   "Spinning up the studio engine…",
   "Breaking the prompt into beats…",
   "Blocking scenes & camera…",
-  "Casting voices…",
+  "Casting the leads…",
+  "Recording the score…",
   "Color-grading the palette…",
   "Rendering the poster…",
-  "Locking the cut…",
+  "Locking the final cut…",
 ];
 
 export function GenerateButton({ pitchId }: { pitchId: string }) {
   const [pending, start] = useTransition();
   const [phase, setPhase] = useState(0);
+  const { toast } = useToast();
 
   function run() {
-    // Cosmetic phase ticker while the server generates.
     let i = 0;
     const timer = setInterval(() => {
       i = Math.min(i + 1, PHASES.length - 1);
       setPhase(i);
-    }, 650);
+    }, 620);
     start(async () => {
       try {
-        await generateMovieAction(pitchId);
+        const res = await generateMovieAction(pitchId);
+        // Success redirects; only a failure result returns here.
+        if (res && !res.ok) toast(res.error, "error");
       } finally {
         clearInterval(timer);
       }
@@ -35,22 +39,25 @@ export function GenerateButton({ pitchId }: { pitchId: string }) {
 
   if (pending) {
     return (
-      <div className="panel" style={{ textAlign: "center" }}>
-        <div className="badge badge-GENERATING" style={{ marginBottom: 12 }}>
+      <div className="production">
+        <div className="badge badge-GENERATING" style={{ marginBottom: 14 }}>
           ● In Production
         </div>
-        <div style={{ fontFamily: "var(--font-display)", fontSize: 18 }}>
-          {PHASES[phase]}
-        </div>
+        <div className="production-phase">{PHASES[phase]}</div>
         <div className="meter" style={{ marginTop: 16 }}>
           <span style={{ width: `${((phase + 1) / PHASES.length) * 100}%` }} />
+        </div>
+        <div className="reel" aria-hidden>
+          {Array.from({ length: 8 }).map((_, k) => (
+            <i key={k} />
+          ))}
         </div>
       </div>
     );
   }
 
   return (
-    <button className="btn btn-green" onClick={run}>
+    <button className="btn btn-green btn-lg" onClick={run}>
       🎬 Roll camera — generate the film
     </button>
   );

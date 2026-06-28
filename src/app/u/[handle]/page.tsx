@@ -18,7 +18,7 @@ export default async function ProfilePage({
     where: { handle },
     include: {
       pitches: {
-        include: { author: true, movie: { select: { posterSvg: true } } },
+        include: { author: true, movie: { select: { posterSvg: true, criticScore: true } } },
         orderBy: { createdAt: "desc" },
       },
     },
@@ -41,6 +41,7 @@ export default async function ProfilePage({
     authorHandle: user.handle,
     hasVoted: false,
     posterSvg: p.movie?.posterSvg ?? null,
+    criticScore: p.movie?.criticScore ?? null,
   });
 
   return (

@@ -73,6 +73,10 @@ model Movie {
   posterSvg   String   // inline SVG poster
   runtimeSec  Int      // total "runtime" of the stream
   scenesJson  String   // JSON array of Scene objects
+  castJson    String   @default("[]") // JSON array of CastMember
+  crewJson    String   @default("{}") // JSON Crew object
+  rating      String   @default("PG-13")
+  criticScore Int      @default(80)
   // Monetization controls owned by the director.
   ticketPrice Int      @default(5)
   earnings    Int      @default(0) // lifetime credits earned

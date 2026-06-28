@@ -1,15 +1,27 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
 import { RULES } from "@/lib/config";
 import { runtime } from "@/lib/format";
-import type { Scene } from "@/lib/studio";
+import type { Scene, CastMember, Crew } from "@/lib/studio";
 import { Player } from "@/components/Player";
 import { Poster } from "@/components/Poster";
-import { buyTicketAction, tipAction, setTicketPriceAction } from "@/app/actions";
+import { BuyTicketButton, TipForm, TicketPriceForm } from "@/components/MonetizeControls";
 
 export const dynamic = "force-dynamic";
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const { id } = await params;
+  const pitch = await db.pitch.findUnique({ where: { id }, include: { movie: true } });
+  if (!pitch?.movie) return { title: "Now Streaming" };
+  return { title: pitch.title, description: pitch.movie.tagline };
+}
 
 export default async function WatchPage({
   params,
@@ -19,7 +31,6 @@ export default async function WatchPage({
   const { id } = await params;
   const user = await getCurrentUser();
 
-  // `id` is the pitch id (stable, shareable). Movie hangs off it.
   const pitch = await db.pitch.findUnique({
     where: { id },
     include: { author: true, movie: true },
@@ -28,13 +39,14 @@ export default async function WatchPage({
   if (!pitch || !pitch.movie) notFound();
   const movie = pitch.movie;
   const scenes: Scene[] = JSON.parse(movie.scenesJson);
+  const cast: CastMember[] = JSON.parse(movie.castJson || "[]");
+  const crew: Crew = JSON.parse(movie.crewJson || "{}");
 
   const isDirector = user?.id === pitch.authorId;
   const hasViewed = user
     ? (await db.view.count({ where: { movieId: movie.id, userId: user.id } })) > 0
     : false;
 
-  // The director always has access; everyone else needs a ticket (a View row).
   const canWatch = isDirector || hasViewed;
   const price = movie.ticketPrice;
   const affordable = !user || user.credits >= price;
@@ -45,16 +57,23 @@ export default async function WatchPage({
         <Link href="/now-streaming">Now Streaming</Link> / {pitch.title}
       </div>
 
-      <div className="row" style={{ alignItems: "flex-start", marginTop: 6 }}>
+      <div className="watch-grid">
         {/* Left: player / paywall */}
-        <div style={{ flex: "1 1 560px", minWidth: 0 }}>
+        <div style={{ minWidth: 0 }}>
           {canWatch ? (
-            <Player scenes={scenes} />
+            <Player
+              title={pitch.title}
+              tagline={movie.tagline}
+              scenes={scenes}
+              cast={cast}
+              crew={crew}
+              directorName={pitch.author.displayName}
+            />
           ) : (
             <div className="player">
               <Poster svg={movie.posterSvg} className="player-stage" />
               <div className="paywall">
-                <div style={{ fontFamily: "var(--font-display)", fontSize: 22 }}>
+                <div style={{ fontFamily: "var(--font-display)", fontSize: 24 }}>
                   Buy a ticket to stream
                 </div>
                 <p className="muted" style={{ maxWidth: "36ch" }}>
@@ -63,13 +82,9 @@ export default async function WatchPage({
                     : `${price} credits — ${Math.round(price * (1 - RULES.PLATFORM_FEE))} go straight to the director.`}
                 </p>
                 {user ? (
-                  <form action={buyTicketAction.bind(null, movie.id)}>
-                    <button className="btn btn-primary" disabled={!affordable}>
-                      {price === 0 ? "▶ Watch free" : `▶ Buy ticket · ${price} cr`}
-                    </button>
-                  </form>
+                  <BuyTicketButton movieId={movie.id} price={price} affordable={affordable} />
                 ) : (
-                  <Link href="/" className="btn btn-primary">
+                  <Link href="/" className="btn btn-primary btn-lg">
                     Sign in to watch
                   </Link>
                 )}
@@ -88,23 +103,38 @@ export default async function WatchPage({
           </p>
           <div className="pill-list" style={{ margin: "12px 0" }}>
             <span className="badge">{pitch.genre}</span>
+            <span className="badge">{movie.rating}</span>
             <span className="badge">{runtime(movie.runtimeSec)}</span>
             <span className="badge">{scenes.length} scenes</span>
-            <span className="badge">{movie.viewCount} views</span>
+            <span className="badge score-badge">★ {movie.criticScore} critic score</span>
           </div>
           <p className="muted" style={{ fontSize: 16, lineHeight: 1.7, maxWidth: "64ch" }}>
             {movie.synopsis}
           </p>
-          <p className="faint" style={{ fontSize: 13, marginTop: 14 }}>
+
+          {cast.length > 0 && (
+            <div className="credits-inline">
+              <h3 className="subhead">Cast</h3>
+              <div className="pill-list">
+                {cast.map((c) => (
+                  <span key={c.role} className="cast-chip">
+                    <b>{c.actor}</b> <span className="faint">as {c.role}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <p className="faint" style={{ fontSize: 13, marginTop: 16 }}>
             Directed &amp; produced by{" "}
-            <Link href={`/u/${pitch.author.handle}`} style={{ color: "var(--text-dim)" }}>
+            <Link href={`/u/${pitch.author.handle}`} className="link">
               @{pitch.author.handle}
             </Link>
           </p>
         </div>
 
         {/* Right: monetization rail */}
-        <div style={{ flex: "0 0 280px", display: "flex", flexDirection: "column", gap: 16 }}>
+        <aside className="watch-rail">
           <div className="panel">
             <div className="row" style={{ gap: 22 }}>
               <div className="stat">
@@ -122,43 +152,17 @@ export default async function WatchPage({
 
           {isDirector ? (
             <div className="panel">
-              <h3 style={{ fontSize: 15, marginBottom: 4 }}>Director controls</h3>
+              <h3 className="subhead">Director controls</h3>
               <p className="faint" style={{ fontSize: 12, marginBottom: 12 }}>
-                Set your ticket price. The platform keeps {Math.round(RULES.PLATFORM_FEE * 100)}%.
+                Set your ticket price. The platform keeps {Math.round(RULES.PLATFORM_FEE * 100)}%; the rest is yours.
               </p>
-              <form
-                action={setTicketPriceAction.bind(null, movie.id)}
-                className="inline-form"
-              >
-                <input
-                  className="control"
-                  name="ticketPrice"
-                  type="number"
-                  min={RULES.MIN_TICKET_PRICE}
-                  max={RULES.MAX_TICKET_PRICE}
-                  defaultValue={price}
-                />
-                <button className="btn btn-sm" type="submit">
-                  Save
-                </button>
-              </form>
+              <TicketPriceForm movieId={movie.id} price={price} />
             </div>
           ) : (
             user && (
               <div className="panel">
-                <h3 style={{ fontSize: 15, marginBottom: 8 }}>Tip the director</h3>
-                <form action={tipAction.bind(null, movie.id)} className="inline-form">
-                  <input
-                    className="control"
-                    name="amount"
-                    type="number"
-                    min={1}
-                    defaultValue={10}
-                  />
-                  <button className="btn btn-green btn-sm" type="submit">
-                    Send tip
-                  </button>
-                </form>
+                <h3 className="subhead">Tip the director</h3>
+                <TipForm movieId={movie.id} />
                 <p className="faint" style={{ fontSize: 12, marginTop: 8 }}>
                   Your balance: {user.credits} cr
                 </p>
@@ -166,12 +170,11 @@ export default async function WatchPage({
             )
           )}
 
-          {canWatch && !isDirector && (
-            <p className="toast" style={{ fontSize: 13 }}>
-              ✓ Ticket purchased — enjoy the show.
-            </p>
-          )}
-        </div>
+          <div className="panel">
+            <h3 className="subhead">From the pitch</h3>
+            <p className="muted" style={{ fontSize: 13.5, lineHeight: 1.6 }}>{pitch.logline}</p>
+          </div>
+        </aside>
       </div>
     </>
   );

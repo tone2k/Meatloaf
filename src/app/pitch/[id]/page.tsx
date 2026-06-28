@@ -77,6 +77,7 @@ export default async function PitchPage({
               </p>
               <VoteButton
                 pitchId={pitch.id}
+                title={pitch.title}
                 voteCount={pitch.voteCount}
                 hasVoted={hasVoted}
                 signedIn={!!user}
