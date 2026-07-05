@@ -51,6 +51,7 @@ export default async function BoardPage({
     voteCount: p.voteCount,
     authorHandle: p.author.handle,
     hasVoted: Array.isArray(p.votes) && p.votes.length > 0,
+    isAuthor: !!user && p.authorId === user.id,
     posterSvg: p.movie?.posterSvg ?? null,
     criticScore: p.movie?.criticScore ?? null,
   });

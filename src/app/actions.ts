@@ -84,6 +84,9 @@ export async function voteAction(pitchId: string): Promise<ActionResult<VoteStat
 
     const state = await db.$transaction(async (tx) => {
       const pitch = await tx.pitch.findUniqueOrThrow({ where: { id: pitchId } });
+      if (pitch.authorId === user.id) {
+        throw new ValidationError("You can't vote for your own pitch — the crowd decides.");
+      }
       if (pitch.status !== "PITCHED") {
         return { voteCount: pitch.voteCount, status: pitch.status, greenlit: false };
       }

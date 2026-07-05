@@ -82,6 +82,7 @@ export default async function PitchPage({
                 hasVoted={hasVoted}
                 signedIn={!!user}
                 closed={false}
+                isAuthor={isDirector}
               />
             </>
           ) : (

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
+import { plural } from "@/lib/format";
 import { Poster } from "@/components/Poster";
 
 export const dynamic = "force-dynamic";
@@ -76,7 +77,7 @@ export default async function BoxOfficePage() {
                     <span className="chart-main">
                       <span className="chart-title">{m.pitch.title}</span>
                       <span className="faint" style={{ fontSize: 13 }}>
-                        @{m.pitch.author.handle} · {m.viewCount} tickets · ★ {m.criticScore}
+                        @{m.pitch.author.handle} · {plural(m.viewCount, "ticket")} · ★ {m.criticScore}
                       </span>
                     </span>
                     <span className="chart-amt">{m.earnings} cr</span>
@@ -101,7 +102,7 @@ export default async function BoxOfficePage() {
                     <span className="chart-main">
                       <span className="chart-title">{d.name}</span>
                       <span className="faint" style={{ fontSize: 13 }}>
-                        @{d.handle} · {d.films} film{d.films === 1 ? "" : "s"} · {d.tickets} tickets
+                        @{d.handle} · {plural(d.films, "film")} · {plural(d.tickets, "ticket")}
                       </span>
                     </span>
                     <span className="chart-amt">{d.earnings} cr</span>

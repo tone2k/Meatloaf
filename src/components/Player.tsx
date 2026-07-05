@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import type { Scene, CastMember, Crew } from "@/lib/studio";
 import { Score } from "@/lib/audio";
 
@@ -34,6 +34,27 @@ export function Player({
   const startedAt = useRef(0);
   const elapsedBefore = useRef(0);
   const score = useRef<Score | null>(null);
+
+  // Credits scroll is measured, not a fixed CSS distance, so it never scrolls
+  // fully off-screen and leaves a black gap regardless of how tall the credits
+  // are or how big the player is rendered.
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const rollRef = useRef<HTMLDivElement | null>(null);
+  const [creditsTravel, setCreditsTravel] = useState({ start: 0, end: 0 });
+
+  useLayoutEffect(() => {
+    if (phase !== "credits") return;
+    const stage = stageRef.current;
+    const roll = rollRef.current;
+    if (!stage || !roll) return;
+    const containerH = stage.clientHeight;
+    const contentH = roll.scrollHeight;
+    // Start with the whole roll just below the frame; end with its last line
+    // resting ~40% down from the top, so the final frame is never empty.
+    const start = containerH;
+    const end = Math.min(start, containerH * 0.4 - contentH);
+    setCreditsTravel({ start, end });
+  }, [phase]);
 
   const scene = scenes[i];
 
@@ -185,8 +206,16 @@ export function Player({
 
         {/* END CREDITS */}
         {phase === "credits" && (
-          <div className="player-stage credits-stage">
-            <div className={`credits-roll${playing ? " rolling" : ""}`}>
+          <div className="player-stage credits-stage" ref={stageRef}>
+            <div
+              className="credits-roll"
+              ref={rollRef}
+              style={{
+                transform: `translateY(${
+                  creditsTravel.start + (creditsTravel.end - creditsTravel.start) * progress
+                }px)`,
+              }}
+            >
               <div className="credits-title">{title}</div>
               <div className="credits-block">
                 <div className="credits-role">Directed &amp; Produced by</div>

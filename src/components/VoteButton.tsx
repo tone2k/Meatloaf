@@ -13,6 +13,7 @@ export function VoteButton({
   hasVoted,
   signedIn,
   closed,
+  isAuthor = false,
 }: {
   pitchId: string;
   title: string;
@@ -20,6 +21,7 @@ export function VoteButton({
   hasVoted: boolean;
   signedIn: boolean;
   closed: boolean;
+  isAuthor?: boolean;
 }) {
   const [pending, start] = useTransition();
   const [optimistic, setOptimistic] = useState({ count: voteCount, voted: hasVoted });
@@ -31,6 +33,15 @@ export function VoteButton({
     return (
       <span className="vote closed" title="Voting closed — greenlit">
         <span className="arrow">★</span>
+        {voteCount}
+      </span>
+    );
+  }
+
+  if (isAuthor) {
+    return (
+      <span className="vote closed" title="You can't vote for your own pitch — the crowd decides.">
+        <span className="arrow">△</span>
         {voteCount}
       </span>
     );

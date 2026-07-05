@@ -2,7 +2,7 @@ import Link from "next/link";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
 import { STATUS_LABEL } from "@/lib/config";
-import { runtime, ago } from "@/lib/format";
+import { runtime, ago, plural } from "@/lib/format";
 import { Poster } from "@/components/Poster";
 
 export const dynamic = "force-dynamic";
@@ -97,8 +97,8 @@ export default async function StudioPage() {
                   <div style={{ fontFamily: "var(--font-display)", fontSize: 19 }}>{p.title}</div>
                   <div className="faint" style={{ fontSize: 13 }}>
                     {p.movie
-                      ? `${p.movie.viewCount} tickets · ${p.movie.earnings} cr earned · ${runtime(p.movie.runtimeSec)}`
-                      : `${p.voteCount} votes · pitched ${ago(p.createdAt)}`}
+                      ? `${plural(p.movie.viewCount, "ticket")} · ${p.movie.earnings} cr earned · ${runtime(p.movie.runtimeSec)}`
+                      : `${plural(p.voteCount, "vote")} · pitched ${ago(p.createdAt)}`}
                   </div>
                 </div>
                 <span className="faint">→</span>

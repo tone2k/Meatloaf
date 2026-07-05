@@ -40,6 +40,7 @@ export default async function ProfilePage({
     voteCount: p.voteCount,
     authorHandle: user.handle,
     hasVoted: false,
+    isAuthor: !!viewer && viewer.id === user.id,
     posterSvg: p.movie?.posterSvg ?? null,
     criticScore: p.movie?.criticScore ?? null,
   });

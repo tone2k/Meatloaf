@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
 import { RULES } from "@/lib/config";
+import { splitRevenue } from "@/lib/economy";
 import { runtime } from "@/lib/format";
 import type { Scene, CastMember, Crew } from "@/lib/studio";
 import { Player } from "@/components/Player";
@@ -79,7 +80,7 @@ export default async function WatchPage({
                 <p className="muted" style={{ maxWidth: "36ch" }}>
                   {price === 0
                     ? "This film is free to watch."
-                    : `${price} credits — ${Math.round(price * (1 - RULES.PLATFORM_FEE))} go straight to the director.`}
+                    : `${price} credits — ${splitRevenue(price).net} go to the director, ${splitRevenue(price).fee} to the platform.`}
                 </p>
                 {user ? (
                   <BuyTicketButton movieId={movie.id} price={price} affordable={affordable} />

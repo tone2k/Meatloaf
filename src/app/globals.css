@@ -990,23 +990,13 @@ textarea.control {
 }
 .credits-roll {
   position: absolute;
-  top: 100%;
+  top: 0;
   left: 0;
   right: 0;
   text-align: center;
   color: #fff;
   padding: 0 20px;
-}
-.credits-roll.rolling {
-  animation: roll var(--credits-dur, 9s) linear forwards;
-}
-@keyframes roll {
-  from {
-    transform: translateY(0);
-  }
-  to {
-    transform: translateY(-150%);
-  }
+  will-change: transform;
 }
 .credits-title {
   font-family: var(--font-display);

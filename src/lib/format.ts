@@ -1,3 +1,9 @@
+/** "1 ticket", "3 tickets" — count + correctly pluralized noun. */
+export function plural(n: number, singular: string, pluralForm?: string): string {
+  const word = n === 1 ? singular : (pluralForm ?? `${singular}s`);
+  return `${n} ${word}`;
+}
+
 export function runtime(sec: number): string {
   const m = Math.floor(sec / 60);
   const s = sec % 60;

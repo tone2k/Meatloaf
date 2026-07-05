@@ -24,6 +24,7 @@ export default async function NowStreamingPage() {
     voteCount: p.voteCount,
     authorHandle: p.author.handle,
     hasVoted: false,
+    isAuthor: !!user && p.authorId === user.id,
     posterSvg: p.movie?.posterSvg ?? null,
     criticScore: p.movie?.criticScore ?? null,
   }));

@@ -11,6 +11,7 @@ export interface PitchCardData {
   voteCount: number;
   authorHandle: string;
   hasVoted: boolean;
+  isAuthor?: boolean;
   posterSvg?: string | null;
   criticScore?: number | null;
 }
@@ -78,6 +79,7 @@ export function PitchCard({
             hasVoted={pitch.hasVoted}
             signedIn={signedIn}
             closed={pitch.status !== "PITCHED"}
+            isAuthor={pitch.isAuthor}
           />
         </div>
       </div>
