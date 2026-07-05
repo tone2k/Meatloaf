@@ -1,0 +1,125 @@
+// Greenlight — generative AI movie studio
+// Data model for the pitch -> vote -> greenlight -> generate -> stream -> monetize loop.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id          String   @id @default(cuid())
+  handle      String   @unique
+  displayName String
+  credits     Int      @default(100) // virtual studio credits (wallet)
+  createdAt   DateTime @default(now())
+
+  pitches      Pitch[]
+  votes        Vote[]
+  views        View[]
+  tips         Tip[]        @relation("TipFrom")
+  // Money earned as a director flows through Transaction rows.
+  transactions Transaction[]
+}
+
+// A Pitch is a movie idea. Its author becomes Director/Producer once greenlit.
+model Pitch {
+  id        String      @id @default(cuid())
+  title     String
+  logline   String
+  genre     String
+  // The generative prompt that drives the studio engine.
+  prompt    String
+  status    PitchStatus @default(PITCHED)
+  voteCount Int         @default(0)
+  createdAt DateTime    @default(now())
+  greenlitAt DateTime?
+
+  authorId String
+  author   User   @relation(fields: [authorId], references: [id])
+
+  votes Vote[]
+  movie Movie?
+}
+
+enum PitchStatus {
+  PITCHED     // accepting votes
+  GREENLIT    // crossed threshold; author now has director rights
+  GENERATING  // studio engine running
+  RELEASED    // streamable + monetized
+}
+
+model Vote {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  pitchId String
+  pitch   Pitch  @relation(fields: [pitchId], references: [id])
+  userId  String
+  user    User   @relation(fields: [userId], references: [id])
+
+  @@unique([pitchId, userId]) // one vote per user per pitch
+}
+
+// The generated film tied 1:1 to a greenlit pitch.
+model Movie {
+  id          String   @id @default(cuid())
+  // Generated artifacts.
+  tagline     String
+  synopsis    String
+  posterSvg   String   // inline SVG poster
+  runtimeSec  Int      // total "runtime" of the stream
+  scenesJson  String   // JSON array of Scene objects
+  castJson    String   @default("[]") // JSON array of CastMember
+  crewJson    String   @default("{}") // JSON Crew object
+  rating      String   @default("PG-13")
+  criticScore Int      @default(80)
+  // Monetization controls owned by the director.
+  ticketPrice Int      @default(5)
+  earnings    Int      @default(0) // lifetime credits earned
+  viewCount   Int      @default(0)
+  releasedAt  DateTime @default(now())
+
+  pitchId String @unique
+  pitch   Pitch  @relation(fields: [pitchId], references: [id])
+
+  views View[]
+  tips  Tip[]
+}
+
+// A paid (or free, if director) stream of a movie.
+model View {
+  id        String   @id @default(cuid())
+  pricePaid Int      @default(0)
+  createdAt DateTime @default(now())
+
+  movieId String
+  movie   Movie  @relation(fields: [movieId], references: [id])
+  userId  String
+  user    User   @relation(fields: [userId], references: [id])
+}
+
+model Tip {
+  id        String   @id @default(cuid())
+  amount    Int
+  createdAt DateTime @default(now())
+
+  movieId String
+  movie   Movie  @relation(fields: [movieId], references: [id])
+  fromId  String
+  from    User   @relation("TipFrom", fields: [fromId], references: [id])
+}
+
+// Ledger of wallet movements (tickets, tips, payouts, grants).
+model Transaction {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  amount    Int      // signed: positive = credit in, negative = spend
+  kind      String   // GRANT | TICKET | TIP | PAYOUT
+  memo      String
+  createdAt DateTime @default(now())
+}
