@@ -42,6 +42,7 @@ export default async function RootLayout({
               </Link>
               <div className="nav-links">
                 <Link href="/">Board</Link>
+                <Link href="/leaderboard">Greenlight Race</Link>
                 <Link href="/now-streaming">Streaming</Link>
                 <Link href="/box-office">Box Office</Link>
                 {user && <Link href="/studio">My Studio</Link>}

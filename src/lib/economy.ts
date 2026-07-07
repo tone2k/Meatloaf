@@ -10,6 +10,33 @@ export function splitRevenue(gross: number) {
 }
 
 /**
+ * Debit a user's wallet and record a ledger entry (money leaving to the platform,
+ * e.g. a trailer purchase). Throws if they can't afford it.
+ */
+export async function chargeCredits(
+  tx: Prisma.TransactionClient,
+  opts: { userId: string; amount: number; kind: string; memo: string }
+): Promise<void> {
+  const { userId, amount, kind, memo } = opts;
+  const user = await tx.user.findUniqueOrThrow({ where: { id: userId } });
+  if (user.credits < amount) {
+    throw new Error(`Not enough credits — need ${amount}, have ${user.credits}.`);
+  }
+  await tx.user.update({ where: { id: userId }, data: { credits: { decrement: amount } } });
+  await tx.transaction.create({ data: { userId, amount: -amount, kind, memo } });
+}
+
+/** Credit a user's wallet and record a ledger entry (grant, refund, payout). */
+export async function grantCredits(
+  tx: Prisma.TransactionClient,
+  opts: { userId: string; amount: number; kind: string; memo: string }
+): Promise<void> {
+  const { userId, amount, kind, memo } = opts;
+  await tx.user.update({ where: { id: userId }, data: { credits: { increment: amount } } });
+  await tx.transaction.create({ data: { userId, amount, kind, memo } });
+}
+
+/**
  * Move `amount` of credits from a viewer to a director inside a transaction,
  * recording both ledger entries. `kind` is TICKET or TIP. Returns the net the
  * director received. Throws if the viewer cannot afford it.

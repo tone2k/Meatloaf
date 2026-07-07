@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { generateFilm } from "../src/lib/studio";
+import { generateFilm, generateTrailer } from "../src/lib/studio";
 
 const base = {
   id: "pitch_123",
@@ -56,6 +56,21 @@ test("generates cast, crew, rating and a critic score", () => {
   assert.ok(f.crew.cinematographer && f.crew.composer && f.crew.editor && f.crew.studio);
   assert.ok(["G", "PG", "PG-13", "R"].includes(f.rating));
   assert.ok(f.criticScore >= 0 && f.criticScore <= 100);
+});
+
+test("generateTrailer is deterministic and short", () => {
+  const a = generateTrailer(base, 3);
+  const b = generateTrailer(base, 3);
+  assert.deepEqual(a, b);
+  assert.equal(a.scenes.length, 3);
+  assert.ok(a.tagline.length > 0);
+});
+
+test("a trailer differs from the full film for the same pitch", () => {
+  const film = generateFilm(base);
+  const trailer = generateTrailer(base, 3);
+  // Distinct seed salt -> the teaser is its own cut, not the first N film scenes.
+  assert.notDeepEqual(trailer.scenes, film.scenes.slice(0, 3));
 });
 
 test("poster is well-formed self-contained SVG and escapes the title", () => {

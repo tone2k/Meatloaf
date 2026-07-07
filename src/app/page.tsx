@@ -52,6 +52,7 @@ export default async function BoardPage({
     authorHandle: p.author.handle,
     hasVoted: Array.isArray(p.votes) && p.votes.length > 0,
     isAuthor: !!user && p.authorId === user.id,
+    hasTrailer: !!p.trailerJson,
     posterSvg: p.movie?.posterSvg ?? null,
     criticScore: p.movie?.criticScore ?? null,
   });
@@ -74,10 +75,14 @@ export default async function BoardPage({
         <span className="hero-kicker">GENERATIVE AI MOVIE STUDIO</span>
         <h1>The studio where the best pitch gets made.</h1>
         <p>
-          Pitch a movie as a single prompt. The crowd votes. Cross{" "}
-          <b style={{ color: "var(--green)" }}>{RULES.GREENLIGHT_THRESHOLD} votes</b> and your pitch
-          is <b>greenlit</b> — you become director, the studio engine generates the film, and it
-          streams for credits that flow back to you.
+          Pitch a movie as a single prompt, then compete on the{" "}
+          <Link href="/leaderboard" className="link" style={{ color: "var(--green)" }}>
+            Greenlight Race
+          </Link>
+          . <b>Anyone can vote — you don't have to pitch.</b> Only prompts that rise above the crowd
+          and cross the <b style={{ color: "var(--green)" }}>greenlight line ({RULES.GREENLIGHT_THRESHOLD} votes)</b> get
+          made — then you direct, the studio generates the film, and it streams for credits that flow
+          back to you.
         </p>
         <div className="steps">
           <span className="step"><b>1</b> Pitch</span>

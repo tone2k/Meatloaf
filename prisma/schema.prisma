@@ -38,6 +38,10 @@ model Pitch {
   createdAt DateTime    @default(now())
   greenlitAt DateTime?
 
+  // Optional paid "teaser trailer" that showcases the pitch on the board.
+  // JSON: { tagline: string, scenes: Scene[] }. Null = no trailer bought yet.
+  trailerJson String?
+
   authorId String
   author   User   @relation(fields: [authorId], references: [id])
 

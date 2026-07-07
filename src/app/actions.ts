@@ -5,8 +5,8 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { RULES } from "@/lib/config";
 import { getCurrentUser, requireUser, signInOrCreate, signOut } from "@/lib/session";
-import { generateFilm } from "@/lib/studio";
-import { payDirector } from "@/lib/economy";
+import { generateFilm, generateTrailer } from "@/lib/studio";
+import { payDirector, chargeCredits, grantCredits } from "@/lib/economy";
 import { ActionResult, ok, fail } from "@/lib/types";
 import {
   ValidationError,
@@ -60,6 +60,7 @@ export async function createPitchAction(
     const input = parsePitch(formData);
     const pitch = await db.pitch.create({ data: { ...input, authorId: user.id } });
     revalidatePath("/");
+    revalidatePath("/leaderboard");
     return ok({ id: pitch.id });
   });
 
@@ -117,13 +118,60 @@ export async function voteAction(pitchId: string): Promise<ActionResult<VoteStat
         });
         status = "GREENLIT";
         greenlit = true;
+
+        // Trailer upsell is refunded when the pitch is greenlit (creator's boost
+        // paid off). This block runs exactly once — the status guard above stops
+        // any further votes from re-entering it.
+        if (pitch.trailerJson) {
+          await grantCredits(tx, {
+            userId: pitch.authorId,
+            amount: RULES.TRAILER_COST,
+            kind: "REFUND",
+            memo: `Teaser refund — greenlit! · ${pitch.title}`,
+          });
+        }
       }
       return { voteCount, status, greenlit };
     });
 
     revalidatePath("/");
+    revalidatePath("/leaderboard");
     revalidatePath(`/pitch/${pitchId}`);
     return ok(state);
+  });
+}
+
+/**
+ * Buy a Teaser Trailer for your own pitch (an upsell). The creator pays up front;
+ * the credits are refunded automatically if the pitch is later greenlit.
+ */
+export async function generateTrailerAction(pitchId: string): Promise<ActionResult> {
+  return guard(async () => {
+    const user = await requireUser();
+    const pitch = await db.pitch.findUniqueOrThrow({ where: { id: pitchId } });
+    if (pitch.authorId !== user.id) throw new ValidationError("Only the creator can add a teaser.");
+    if (pitch.status !== "PITCHED") throw new ValidationError("Teasers are for pitches still in the race.");
+    if (pitch.trailerJson) throw new ValidationError("This pitch already has a teaser.");
+
+    const trailer = generateTrailer(
+      { id: pitch.id, title: pitch.title, logline: pitch.logline, genre: pitch.genre, prompt: pitch.prompt },
+      RULES.TRAILER_SCENES
+    );
+
+    await db.$transaction(async (tx) => {
+      await chargeCredits(tx, {
+        userId: user.id,
+        amount: RULES.TRAILER_COST,
+        kind: "TRAILER",
+        memo: `Teaser trailer · ${pitch.title}`,
+      });
+      await tx.pitch.update({ where: { id: pitchId }, data: { trailerJson: JSON.stringify(trailer) } });
+    });
+
+    revalidatePath("/");
+    revalidatePath("/leaderboard");
+    revalidatePath(`/pitch/${pitchId}`);
+    return ok();
   });
 }
 
@@ -172,6 +220,7 @@ export async function generateMovieAction(pitchId: string): Promise<ActionResult
     ]);
 
     revalidatePath("/");
+    revalidatePath("/leaderboard");
     revalidatePath(`/pitch/${pitchId}`);
     return ok();
   });

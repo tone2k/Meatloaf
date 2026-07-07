@@ -4,8 +4,11 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
 import { RULES, STATUS_LABEL } from "@/lib/config";
 import { ago } from "@/lib/format";
+import type { Scene } from "@/lib/studio";
 import { VoteButton } from "@/components/VoteButton";
 import { GenerateButton } from "@/components/GenerateButton";
+import { TeaserPlayer } from "@/components/TeaserPlayer";
+import { TrailerUpsell } from "@/components/TrailerUpsell";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +37,17 @@ export default async function PitchPage({
   const pct = Math.min(100, (pitch.voteCount / RULES.GREENLIGHT_THRESHOLD) * 100);
   const remaining = Math.max(0, RULES.GREENLIGHT_THRESHOLD - pitch.voteCount);
 
+  const rank =
+    pitch.status === "PITCHED"
+      ? (await db.pitch.count({
+          where: { status: "PITCHED", voteCount: { gt: pitch.voteCount } },
+        })) + 1
+      : null;
+
+  const trailer: { tagline: string; scenes: Scene[] } | null = pitch.trailerJson
+    ? JSON.parse(pitch.trailerJson)
+    : null;
+
   return (
     <>
       <div className="crumbs">
@@ -45,6 +59,7 @@ export default async function PitchPage({
           <div className="card-foot" style={{ justifyContent: "flex-start", gap: 10 }}>
             <span className={`badge badge-${pitch.status}`}>{STATUS_LABEL[pitch.status]}</span>
             <span className="genre-tag">{pitch.genre}</span>
+            {trailer && <span className="badge trailer-badge">▶ Teaser</span>}
           </div>
           <h1 style={{ fontSize: 40, margin: "12px 0 8px" }}>{pitch.title}</h1>
           <p className="muted" style={{ fontSize: 17, maxWidth: "60ch" }}>
@@ -52,12 +67,18 @@ export default async function PitchPage({
           </p>
           <p className="faint" style={{ fontSize: 13, marginTop: 10 }}>
             Pitched by{" "}
-            <Link href={`/u/${pitch.author.handle}`} style={{ color: "var(--text-dim)" }}>
+            <Link href={`/u/${pitch.author.handle}`} className="link">
               @{pitch.author.handle}
             </Link>{" "}
             · {ago(pitch.createdAt)}
             {pitch.greenlitAt && ` · greenlit ${ago(pitch.greenlitAt)}`}
           </p>
+
+          {trailer && (
+            <div style={{ marginTop: 18 }}>
+              <TeaserPlayer scenes={trailer.scenes} tagline={trailer.tagline} />
+            </div>
+          )}
         </div>
 
         <div className="panel" style={{ flex: "0 0 260px" }}>
@@ -67,13 +88,18 @@ export default async function PitchPage({
           </div>
           {pitch.status === "PITCHED" ? (
             <>
-              <div className="meter" style={{ marginBottom: 8 }}>
+              {rank && (
+                <Link href="/leaderboard" className="rank-chip" title="See the Greenlight Race">
+                  #{rank} in the race →
+                </Link>
+              )}
+              <div className="meter" style={{ margin: "12px 0 8px" }}>
                 <span style={{ width: `${pct}%` }} />
               </div>
               <p className="faint" style={{ fontSize: 13, marginBottom: 14 }}>
                 {remaining === 0
-                  ? "Threshold reached — greenlighting…"
-                  : `${remaining} more to greenlight`}
+                  ? "Crossing the greenlight line…"
+                  : `${remaining} more to cross the greenlight line (${RULES.GREENLIGHT_THRESHOLD})`}
               </p>
               <VoteButton
                 pitchId={pitch.id}
@@ -84,10 +110,15 @@ export default async function PitchPage({
                 closed={false}
                 isAuthor={isDirector}
               />
+              {!user && (
+                <p className="faint" style={{ fontSize: 12, marginTop: 10 }}>
+                  Anyone can vote — you don't have to pitch. Sign in to weigh in.
+                </p>
+              )}
             </>
           ) : (
             <p className="faint" style={{ fontSize: 13 }}>
-              Voting closed — this pitch was greenlit.
+              Voting closed — this pitch crossed the greenlight line.
             </p>
           )}
         </div>
@@ -96,11 +127,22 @@ export default async function PitchPage({
       <div className="divider" />
 
       <div className="panel">
-        <h3 style={{ fontSize: 15, marginBottom: 10, color: "var(--text-dim)" }}>
-          The generative prompt
-        </h3>
+        <h3 className="subhead">The generative prompt</h3>
         <p style={{ fontSize: 16, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{pitch.prompt}</p>
       </div>
+
+      {/* Trailer upsell — creator only, while still in the race, no teaser yet. */}
+      {isDirector && pitch.status === "PITCHED" && !trailer && user && (
+        <div style={{ marginTop: 18 }}>
+          <TrailerUpsell pitchId={pitch.id} credits={user.credits} />
+        </div>
+      )}
+
+      {isDirector && trailer && pitch.status === "PITCHED" && (
+        <p className="faint" style={{ fontSize: 13, marginTop: 14 }}>
+          ✓ Teaser live. The {RULES.TRAILER_COST} credits are refunded the moment this pitch is greenlit.
+        </p>
+      )}
 
       {pitch.status === "GREENLIT" && (
         <div style={{ marginTop: 18 }}>
@@ -108,16 +150,15 @@ export default async function PitchPage({
             <div className="panel">
               <h3 style={{ fontSize: 18, marginBottom: 6 }}>🎬 You're the director.</h3>
               <p className="muted" style={{ marginBottom: 16 }}>
-                Your pitch crossed the threshold, so you hold director &amp; producer rights. Roll
-                camera to generate the film — once it's in the can it streams and earns.
+                Your pitch crossed the greenlight line, so you hold director &amp; producer rights.
+                Roll camera to generate the film — once it's in the can it streams and earns.
               </p>
               <GenerateButton pitchId={pitch.id} />
             </div>
           ) : (
             <div className="panel">
               <p className="muted">
-                Greenlit. Waiting on director{" "}
-                <b>@{pitch.author.handle}</b> to roll camera.
+                Greenlit. Waiting on director <b>@{pitch.author.handle}</b> to roll camera.
               </p>
             </div>
           )}

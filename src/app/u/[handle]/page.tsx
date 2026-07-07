@@ -41,6 +41,7 @@ export default async function ProfilePage({
     authorHandle: user.handle,
     hasVoted: false,
     isAuthor: !!viewer && viewer.id === user.id,
+    hasTrailer: !!p.trailerJson,
     posterSvg: p.movie?.posterSvg ?? null,
     criticScore: p.movie?.criticScore ?? null,
   });

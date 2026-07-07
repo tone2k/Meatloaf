@@ -12,6 +12,7 @@ export interface PitchCardData {
   authorHandle: string;
   hasVoted: boolean;
   isAuthor?: boolean;
+  hasTrailer?: boolean;
   posterSvg?: string | null;
   criticScore?: number | null;
 }
@@ -47,7 +48,10 @@ export function PitchCard({
             {pitch.status === "RELEASED" ? "● " : ""}
             {STATUS_LABEL[pitch.status]}
           </span>
-          <span className="genre-tag">{pitch.genre}</span>
+          <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            {pitch.hasTrailer && <span className="badge trailer-badge">▶ Teaser</span>}
+            <span className="genre-tag">{pitch.genre}</span>
+          </span>
         </div>
 
         <Link href={href} className="card-title">
@@ -62,8 +66,8 @@ export function PitchCard({
             </div>
             <div className="faint" style={{ fontSize: 12, marginTop: 6 }}>
               {remaining === 0
-                ? "Threshold reached!"
-                : `${remaining} more vote${remaining === 1 ? "" : "s"} to greenlight`}
+                ? "At the greenlight line!"
+                : `${remaining} more to the greenlight line`}
             </div>
           </div>
         )}

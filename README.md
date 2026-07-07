@@ -17,11 +17,16 @@ Pitch  ──▶  Vote  ──▶  Greenlight  ──▶  Generate  ──▶  S
 ## The loop in detail
 
 1. **Pitch** — sign in with any handle, submit a title, logline, genre, and the
-   generative prompt that defines the film's world.
-2. **Vote** — every account gets one vote per pitch and starts with `100` studio
-   credits. Voting is **optimistic** — the count moves the instant you click.
-3. **Greenlight** — at **5 votes** a pitch auto-greenlights. A celebration fires,
-   voting closes, and the author is now the director/producer of record.
+   generative prompt that defines the film's world. *(Optional upsell:* generate a
+   paid **Teaser Trailer** to showcase your prompt — see below.)
+2. **Vote** — **anyone can vote; you don't have to pitch.** The whole crowd
+   decides. You get one vote per pitch (no ballot-stuffing) and can't vote for your
+   own. Voting is **optimistic** — the count moves the instant you click.
+3. **The Greenlight Race** — pitches compete for votes on one public leaderboard,
+   ranked with **vote-share %** and distance to the line. Only prompts that rise
+   above the crowd and cross the **greenlight line (25 votes)** get made — this is a
+   race, not five likes. Crossing it fires a celebration and makes the author the
+   director/producer of record.
 4. **Generate** — the director rolls camera. The **studio engine** turns the prompt
    into a film: a 3-act screenplay (scenes with palette, camera, action, and
    dialogue), a generated **cast & crew**, an MPAA-style rating, a critic score, a
@@ -32,13 +37,25 @@ Pitch  ──▶  Vote  ──▶  Greenlight  ──▶  Generate  ──▶  S
    revenue is split between the director and the platform. The director sets their
    own ticket price. The **Box Office** ranks top films and directors.
 
+### The Teaser Trailer upsell
+
+Creators can spend credits to generate a short, scored **teaser** for a pitch that's
+still in the race. It plays right on the board and pitch page (with a `▶ Teaser`
+badge) so the prompt stands out and climbs faster. The creator pays up front, and
+the credits are **fully refunded automatically if the pitch is greenlit** — a
+promote-your-post upsell that rewards pitches the crowd actually wanted.
+
 ## What makes it demo-ready
 
 - 🎥 **Cinematic player** — title card → captioned scenes with ken-burns drift →
   rolling end credits, with a procedurally synthesized ambient **score** (Web
   Audio, zero assets) and keyboard controls (`space`, `←/→`, `m`).
-- 🟢 **The greenlight moment** — crossing the vote threshold triggers a confetti
-  celebration and instantly confers director rights.
+- 🏁 **The Greenlight Race** — a live leaderboard ranking every pitch by votes with
+  vote-share %, a visible greenlight line, and one-click voting.
+- 🟢 **The greenlight moment** — crossing the line triggers a confetti celebration
+  and instantly confers director rights.
+- 🎞️ **Teaser Trailer upsell** — a paid, refunded-if-greenlit boost that generates a
+  short scored teaser to showcase a prompt.
 - 🍿 **Box Office leaderboard** — top-grossing films and top-earning directors.
 - 🔎 **Board** — hot / new / top sorting, genre filter, and live search.
 - 💸 **Real economy** — wallets, a transaction ledger, ticket/tip revenue splits
@@ -84,9 +101,11 @@ best-effort `bash scripts/dev-setup.sh` that does all of the above.
 | `npm run typecheck` | `tsc --noEmit`                                      |
 | `npm test`          | Unit tests (`node:test` via `tsx`)                 |
 
-The seed creates 8 users, 8 pitches across the pipeline, **3 released films** with
-simulated box-office activity (so Streaming and Box Office are populated on first
-load), and a starting wallet + ledger for everyone.
+The seed creates 8 creators and **60 crowd voters who never pitch** (they cast the
+large majority of votes — the public decides), 8 pitches spread across a
+competitive race (one sitting a single vote from the greenlight line), several
+**teaser trailers**, and **2 released films** with simulated box-office activity so
+Streaming and Box Office are populated on first load.
 
 ## Architecture
 
@@ -102,7 +121,8 @@ load), and a starting wallet + ledger for everyone.
 | `src/lib/session.ts`            | Handle-based identity (cookie session)                |
 | `src/app/actions.ts`            | All mutations as Server Actions (typed + validated)   |
 | `src/app/page.tsx`              | The board (sort / filter / search)                    |
-| `src/app/pitch/[id]`            | Pitch detail, voting, director's "roll camera"        |
+| `src/app/leaderboard`           | The Greenlight Race — ranked pitches, vote-share %    |
+| `src/app/pitch/[id]`            | Pitch detail, voting, teaser upsell, "roll camera"    |
 | `src/app/watch/[id]`            | Player, paywall, tipping, director controls           |
 | `src/app/box-office`            | Leaderboard: top films & directors                    |
 | `src/app/studio`                | Director dashboard: films, earnings, wallet ledger    |
@@ -115,8 +135,9 @@ load), and a starting wallet + ledger for everyone.
 Everything balance-related lives in `src/lib/config.ts`:
 
 ```ts
-GREENLIGHT_THRESHOLD: 5    // votes to greenlight
+GREENLIGHT_THRESHOLD: 25   // votes to cross the greenlight line
 STARTING_CREDITS:    100   // wallet grant on sign-up
 PLATFORM_FEE:        0.1   // platform's cut of each ticket/tip
 DEFAULT_TICKET_PRICE: 5    // director can change this per film
+TRAILER_COST:        20    // teaser upsell (refunded if greenlit)
 ```

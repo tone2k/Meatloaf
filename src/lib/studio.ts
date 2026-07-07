@@ -37,6 +37,11 @@ export interface Crew {
   studio: string;
 }
 
+export interface TrailerArtifacts {
+  tagline: string;
+  scenes: Scene[];
+}
+
 export interface FilmArtifacts {
   logline: string;
   tagline: string;
@@ -308,6 +313,50 @@ export function generateFilm(input: {
     posterSvg,
     runtimeSec,
   };
+}
+
+// --- teaser trailer ------------------------------------------------------------
+
+const TEASER_CAPTIONS = [
+  "This season, the crowd decides.",
+  "One prompt. One shot.",
+  "From the mind of a single pitch…",
+  "The story the algorithm couldn't stop.",
+  "Coming soon — if you vote it in.",
+];
+
+/**
+ * A short, high-energy teaser cut from the same world as the eventual film, but
+ * seeded distinctly so it reads as its own thing. Quick scenes, hard cuts, a
+ * closing title-style caption. Deterministic.
+ */
+export function generateTrailer(
+  input: { id: string; title: string; logline: string; genre: string; prompt: string },
+  sceneCount = 3
+): TrailerArtifacts {
+  const rng = mulberry32(hashString("trailer::" + input.id + "::" + input.prompt));
+  const scenes: Scene[] = [];
+  for (let i = 0; i < sceneCount; i++) {
+    const p = pick(rng, PALETTES);
+    const location = pick(rng, LOCATIONS);
+    const time = pick(rng, TIMES);
+    const prefix = rng() > 0.5 ? "INT." : "EXT.";
+    const act: 1 | 2 | 3 = i === 0 ? 1 : i === sceneCount - 1 ? 3 : 2;
+    const last = i === sceneCount - 1;
+    scenes.push({
+      index: i,
+      act,
+      heading: `${prefix} ${location.replace(/^(a|an|the) /, "").toUpperCase()} — ${time}`,
+      shot: pick(rng, SHOTS),
+      action: pick(rng, ACT_BEATS[act]),
+      caption: last ? TEASER_CAPTIONS[0] : pick(rng, TEASER_CAPTIONS),
+      dialogue: !last && rng() > 0.5 ? { speaker: pick(rng, SPEAKERS), line: pick(rng, DIALOGUE) } : null,
+      palette: { from: p.from, to: p.to, accent: p.accent },
+      tone: p.tone,
+      durationSec: 3 + Math.floor(rng() * 2), // 3–4s, fast cuts
+    });
+  }
+  return { tagline: pick(rng, TAGLINES), scenes };
 }
 
 // --- procedural SVG poster -----------------------------------------------------
